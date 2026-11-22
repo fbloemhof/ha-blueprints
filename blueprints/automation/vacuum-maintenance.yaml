@@ -1,5 +1,5 @@
 blueprint:
-  name: 🧹 Vacuum Maintenance & Off-Peak Charging (Roborock)
+  name: Vacuum Maintenance & Off-Peak Charging (Roborock)
   description: |
     # 🧹 Vacuum Maintenance & Off-Peak Charging 🔋
     One blueprint to fully monitor your Roborock vacuum (and optionally its dock): consumable parts, cleaning schedule, errors, water levels, and smart off-peak charging. Just pick your device — every entity is auto-detected by matching the standard Roborock integration entity-ID suffixes (e.g. `main_brush_time_left`, `dirty_box_full`), so you never have to look up entity ID's yourself.

@@ -16,10 +16,12 @@ One blueprint to monitor a Roborock vacuum (and optionally its dock) through the
 official [Roborock integration](https://www.home-assistant.io/integrations/roborock/).
 Pick the vacuum and dock devices; all entities are detected automatically.
 
-<img src="docs/images/vacuum-setup.png" alt="Blueprint setup: vacuum, dock, notify action and feature toggles" width="700">
+<img src="docs/images/vacuum-notifications.png" alt="Notifications on Android: battery boost, dock clean water empty, vacuum trapped with Locate/Resume buttons, main brush overdue with Reset button" width="400">
 
 <details>
-<summary>More screenshots</summary>
+<summary>Setup screenshots</summary>
+
+<img src="docs/images/vacuum-setup.png" alt="Blueprint setup: vacuum, dock, notify action and feature toggles" width="700">
 
 <img src="docs/images/vacuum-description.png" alt="Blueprint description in the automation editor" width="700">
 <img src="docs/images/vacuum-timing.png" alt="Timing and threshold settings, including solar peak and price sensor" width="700">

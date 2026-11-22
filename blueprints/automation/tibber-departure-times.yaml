@@ -1,0 +1,333 @@
+blueprint:
+  name: 🚗 Tibber Smart Charging — Departure Times from Calendar
+  description: |
+    # 🚗 Tibber departure times from your calendar 📅
+    Keeps the weekly departure times of **Tibber smart charging** in sync with your calendar, so the car is charged (as cheaply as possible) when you actually leave — and Tibber doesn't rush to charge on days you stay home.
+
+    Once a day the blueprint looks at the next 7 days of a calendar and works out a departure time for every weekday:
+
+    - 🏢 **Keyword events** — an event whose title contains one of your keywords (e.g. `office`, `work`) sets a **fixed departure time** (default 07:30).
+    - 🏷️ **Tagged events** — an event whose title contains the tag (default `[auto]`, e.g. *Dentist Utrecht [auto]*) sets the departure time to **the event start minus an offset** (default 60 minutes). All-day tagged events use the fixed time.
+    - 🕳️ **No matching event** — the departure time for that day is cleared (or left alone, your choice).
+
+    With several matching events on one day, the earliest departure time wins. Only days that actually change are sent to Tibber.
+
+    📋 Optionally a persistent notification shows what was changed, and you can run your own actions (e.g. a phone notification) when the calendar can't be read.
+
+    Works with the [Tibber Grid Reward](https://github.com/JohNan/homeassistant-tibber_grid_rewards) custom integration (`tibber_grid_reward.set_departure_time` and the `time.*_departure_time_<weekday>` entities). Pick the car device; the departure-time entities are found automatically.
+
+    ⚠️ Tibber stores **one departure time per weekday**, so the blueprint plans at most 7 days ahead.
+  domain: automation
+  author: fbloemhof
+  source_url: https://github.com/fbloemhof/ha-blueprints/blob/main/blueprints/automation/tibber-departure-times.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    tibber_device:
+      name: 🚗 Car
+      description: The car device of the Tibber Grid Reward integration.
+      selector:
+        device:
+          filter:
+            integration: tibber_grid_reward
+    calendar_entity:
+      name: 📅 Calendar
+      description: The calendar to read events from.
+      selector:
+        entity:
+          filter:
+            domain: calendar
+    run_time:
+      name: ⏰ Run at
+      description: When to update the departure times every day.
+      default: "08:00:00"
+      selector:
+        time:
+    rules:
+      name: 📐 Rules
+      icon: mdi:calendar-search
+      input:
+        keywords:
+          name: 🏢 Keywords for a fixed departure time
+          description: >
+            Events whose title contains one of these words (case-insensitive)
+            get the fixed departure time below. Leave empty to only use tagged
+            events.
+          default: []
+          selector:
+            text:
+              multiple: true
+        fixed_time:
+          name: 🕖 Fixed departure time
+          description: Used for keyword events and for all-day tagged events.
+          default: "07:30:00"
+          selector:
+            time:
+        tag:
+          name: 🏷️ Tag for event-based departure
+          description: >
+            Events whose title contains this text (case-insensitive) get a
+            departure time of the event start minus the offset below. Leave
+            empty to disable.
+          default: "[auto]"
+          selector:
+            text:
+        offset_minutes:
+          name: ⏪ Leave this long before a tagged event
+          default: 60
+          selector:
+            number:
+              min: 0
+              max: 360
+              step: 5
+              unit_of_measurement: min
+              mode: box
+        clear_unmatched:
+          name: 🕳️ Clear days without a matching event
+          description: >
+            On: days without a matching event get no departure time (Tibber
+            then charges without a deadline). Off: those days are left as
+            they are in Tibber.
+          default: true
+          selector:
+            boolean:
+    advanced:
+      name: ⚙️ Notifications & advanced
+      icon: mdi:cog-outline
+      collapsed: true
+      input:
+        summary_notification:
+          name: 📋 Show a summary notification
+          description: A persistent notification with the planned week and what changed.
+          default: true
+          selector:
+            boolean:
+        summary_minutes:
+          name: ⏳ Dismiss the summary after
+          description: 0 keeps the notification until you dismiss it yourself.
+          default: 60
+          selector:
+            number:
+              min: 0
+              max: 1440
+              step: 5
+              unit_of_measurement: min
+              mode: box
+        summary_title:
+          name: Summary title
+          default: ⚡ Tibber — departure times
+          selector:
+            text:
+        day_names:
+          name: Weekday names
+          description: Monday to Sunday, used in the summary. Translate as you like.
+          default: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]
+          selector:
+            text:
+              multiple: true
+        text_changed:
+          name: '"Changed" heading'
+          default: Changed in Tibber
+          selector:
+            text:
+        text_unchanged:
+          name: '"Unchanged" heading'
+          default: Unchanged
+          selector:
+            text:
+        text_no_changes:
+          name: '"No changes" text'
+          default: No changes needed.
+          selector:
+            text:
+        text_none:
+          name: '"No departure time" text'
+          default: none
+          selector:
+            text:
+        failure_actions:
+          name: 🚨 Actions when the calendar can't be read
+          description: >
+            For example a phone notification. The departure times are left
+            untouched in that case.
+          default: []
+          selector:
+            action:
+        reload_integration:
+          name: 🔄 Reload the Tibber integration first
+          description: >
+            Reloads the integration before reading the current departure times,
+            so changes made in the Tibber app are picked up. Only needed if your
+            departure-time entities don't follow changes made in the app.
+          default: false
+          selector:
+            boolean:
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: time
+    at: !input run_time
+
+variables:
+  tibber_device: !input tibber_device
+  calendar_entity: !input calendar_entity
+  keywords: !input keywords
+  fixed_time_input: !input fixed_time
+  tag: !input tag
+  offset_minutes: !input offset_minutes
+  clear_unmatched: !input clear_unmatched
+  summary_notification: !input summary_notification
+  summary_minutes: !input summary_minutes
+  summary_title: !input summary_title
+  day_names: !input day_names
+  text_changed: !input text_changed
+  text_unchanged: !input text_unchanged
+  text_no_changes: !input text_no_changes
+  text_none: !input text_none
+  reload_integration: !input reload_integration
+  notification_id: "tibber_departure_times_{{ tibber_device }}"
+
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ reload_integration }}"
+    then:
+      - action: homeassistant.reload_config_entry
+        continue_on_error: true
+        data:
+          entry_id: "{{ device_attr(tibber_device, 'config_entries') | first }}"
+      # Give the integration time to fetch the current settings again.
+      - delay: "00:00:10"
+
+  - action: calendar.get_events
+    continue_on_error: true
+    target:
+      entity_id: "{{ calendar_entity }}"
+    data:
+      start_date_time: "{{ today_at().isoformat() }}"
+      end_date_time: "{{ (today_at() + timedelta(days=7)).isoformat() }}"
+    response_variable: agenda
+
+  - if:
+      - condition: template
+        value_template: "{{ agenda is not defined or calendar_entity not in agenda }}"
+    then:
+      - choose: []
+        default: !input failure_actions
+      - stop: Calendar could not be read
+        error: false
+
+  # Work out the whole week once; the updates and the summary both use this
+  # snapshot (so the summary still shows what was changed after the update).
+  - variables:
+      plan: >
+        {%- set weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] -%}
+        {%- set fixed = fixed_time_input[0:5] -%}
+        {%- set kw = keywords | map('lower') | reject('eq', '') | list -%}
+        {%- set tag_l = (tag | default('') | string | lower) -%}
+        {%- set events = agenda[calendar_entity].events | default([]) -%}
+        {%- set dev_entities = device_entities(tibber_device) -%}
+        {%- set ns = namespace(days=[]) -%}
+        {%- for i in range(7) -%}
+          {%- set d = today_at() + timedelta(days=i) -%}
+          {%- set date_str = d.strftime('%Y-%m-%d') -%}
+          {%- set day = weekdays[d.weekday()] -%}
+          {%- set entity = dev_entities | select('match', 'time\..*departure_time_' ~ day ~ '$') | first | default('') -%}
+          {%- set c = namespace(items=[]) -%}
+          {%- for e in events if (e.start | string)[0:10] == date_str -%}
+            {%- set title = e.summary | default('') | string -%}
+            {%- set title_l = title | lower -%}
+            {%- set timed = 'T' in (e.start | string) -%}
+            {%- if kw | select('in', title_l) | list | count > 0 -%}
+              {%- set c.items = c.items + [{'t': fixed, 'why': title}] -%}
+            {%- elif tag_l != '' and tag_l in title_l -%}
+              {%- if timed -%}
+                {%- set dep = e.start | as_datetime | as_local - timedelta(minutes=offset_minutes | int(0)) -%}
+                {%- set t = dep.strftime('%H:%M') if dep.date() == d.date() else '00:00' -%}
+              {%- else -%}
+                {%- set t = fixed -%}
+              {%- endif -%}
+              {%- set c.items = c.items + [{'t': t, 'why': title}] -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {%- set best = (c.items | sort(attribute='t') | first) if c.items else none -%}
+          {%- set raw = states(entity) if entity else 'unavailable' -%}
+          {%- set current = raw[0:5] if raw not in ['unknown', 'unavailable', 'none', ''] else 'none' -%}
+          {%- if best -%}
+            {%- set target = best.t -%}
+          {%- elif clear_unmatched -%}
+            {%- set target = 'none' -%}
+          {%- else -%}
+            {%- set target = current -%}
+          {%- endif -%}
+          {%- set ns.days = ns.days + [{
+                'day': day,
+                'index': d.weekday(),
+                'date': d.strftime('%d-%m'),
+                'entity': entity,
+                'current': current,
+                'target': target,
+                'why': best.why if best else '',
+                'update': entity != '' and raw != 'unavailable' and target != current
+              }] -%}
+        {%- endfor -%}
+        {{ ns.days }}
+
+  - repeat:
+      for_each: "{{ plan | selectattr('update') | list }}"
+      sequence:
+        - action: tibber_grid_reward.set_departure_time
+          continue_on_error: true
+          data: >
+            {{ {'device_id': tibber_device, 'day': repeat.item.day}
+               | combine({'time': repeat.item.target} if repeat.item.target != 'none' else {}) }}
+
+  - variables:
+      changed: "{{ plan | selectattr('update') | list }}"
+      missing: "{{ plan | selectattr('entity', 'eq', '') | map(attribute='day') | list }}"
+
+  - action: logbook.log
+    data:
+      name: Tibber departure times
+      message: >
+        Checked the next 7 days, {{ changed | count }} updated
+        {%- if changed %} ({{ changed | map(attribute='day') | join(', ') }}){% endif %}.
+        {%- if missing %} No departure-time entity found for {{ missing | join(', ') }}.{% endif %}
+
+  - if:
+      - condition: template
+        value_template: "{{ summary_notification }}"
+    then:
+      - action: persistent_notification.create
+        data:
+          notification_id: "{{ notification_id }}"
+          title: "{{ summary_title }}"
+          message: >
+            {%- macro label(p) -%}
+              {{ day_names[p.index] | default(p.day | capitalize) }} ({{ p.date }})
+            {%- endmacro -%}
+            {%- macro show(t) -%}{{ text_none if t == 'none' else t }}{%- endmacro -%}
+            ### 🔄 {{ text_changed }}
+
+            {% for p in changed -%}
+            - **{{ label(p) }}**: {{ show(p.current) }} ➡️ **{{ show(p.target) }}**{{ ' — ' ~ p.why if p.why }}
+            {% else -%}
+            *{{ text_no_changes }}*
+            {% endfor %}
+
+            ### 📋 {{ text_unchanged }}
+
+            {% for p in plan | rejectattr('update') -%}
+            - {{ label(p) }}: {{ show(p.current) }}{{ ' — ' ~ p.why if p.why }}
+            {% endfor %}
+      - if:
+          - condition: template
+            value_template: "{{ summary_minutes | int(0) > 0 }}"
+        then:
+          - delay:
+              minutes: "{{ summary_minutes | int(0) }}"
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: "{{ notification_id }}"
