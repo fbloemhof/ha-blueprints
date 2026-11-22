@@ -1,0 +1,961 @@
+blueprint:
+  name: 🧹 Vacuum Maintenance & Off-Peak Charging (Roborock)
+  description: |
+    # 🧹 Vacuum Maintenance & Off-Peak Charging 🔋
+    One blueprint to fully monitor your Roborock vacuum (and optionally its dock): consumable parts, cleaning schedule, errors, water levels, and smart off-peak charging. Just pick your device — every entity is auto-detected by matching the standard Roborock integration entity-ID suffixes (e.g. `main_brush_time_left`, `dirty_box_full`), so you never have to look up entity ID's yourself.
+
+    **What does it monitor?** Toggle individual parts on/off under **🎛️ Features**.
+
+    - 🧹 **Consumable parts** — main brush, side brush, filter, sensors (vacuum) + strainer and cleaning brush (dock, if selected). Notification includes a direct **Reset** action button that calls `button.reset_*_consumable`.
+    - 📅 **Hasn't cleaned in a while** — daily check.
+    - 🚨 **Error notifications** — vacuum and dock (e.g. stuck, wheels off the ground, brush tangled), with **Locate** / **Resume** buttons when the robot is trapped. Polled every 5 minutes, but a notification is only sent (or cleared) when the error state actually changes — no push spam. Water-tank-related error codes are skipped here whenever 💧 water level monitoring is enabled, so a low/full tank doesn't trigger both a generic error notification and the dedicated water notification.
+    - 💧 **Dock water levels** — clean water empty, dirty water tank full. (The vacuum handles its own onboard water shortage, so that's not reported separately.)
+    - ⚡ **Off-peak charging window** (`time.*_off_peak_start`/`_end`) — prefers the expected solar peak (free self-generated power), falling back to the cheapest consecutive block of tomorrow's prices from a [Nord Pool (custom integration)](https://github.com/custom-components/nordpool) sensor. Works with hourly and 15-minute prices. If no prices are known yet, the current window is left untouched.
+    - 🔋 **Battery boost charging** — if a cleaning round ends early with a low battery (aging battery that can't finish a full round anymore), temporarily disables `switch.*_off_peak_charging` so the dock charges immediately instead of waiting for the off-peak window. Re-enables off-peak charging once the battery is full again — unless you turned the switch off yourself in Home Assistant.
+
+    💡 Entities are found by their entity-ID suffix (English and Dutch names supported). If an entity is missing on your model (e.g. no dock, or no off-peak support), or you renamed its entity ID, that part simply does nothing — no errors.
+
+    ⚠️ **Note**: on models with an auto-empty/auto-wash dock, the water tanks are almost always in the dock, not on the vacuum itself — that dock is a separate device in Home Assistant, so pick it separately under **🔌 Dock**.
+
+    📱 Notifications are built for the Home Assistant Companion app. Sticky/persistent notifications and icons are Android-only; iOS shows the same notifications and buttons without those extras.
+
+    🌐 All notification text defaults to English but is fully configurable under **💬 Notification Messages** — translate or reword it to your liking.
+  domain: automation
+  author: fbloemhof
+  source_url: https://github.com/fbloemhof/ha-blueprints/blob/main/blueprints/automation/vacuum-maintenance.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    target_device:
+      name: 🤖 Vacuum
+      description: Select the Roborock device (the robot itself).
+      selector:
+        device:
+          filter:
+            integration: roborock
+    dock_device:
+      name: "🔌 Dock (optional)"
+      description: >
+        Select the standalone dock device, if your model has an
+        auto-empty/auto-wash dock. That's where the water tanks and any
+        extra consumable parts (strainer, cleaning brush) live. Leave empty
+        if you don't have a dock or only want to monitor the vacuum itself.
+      default: []
+      selector:
+        device:
+          filter:
+            integration: roborock
+    notify_action:
+      name: 🔔 Notification Service
+      description: >
+        The Companion app notify action that should receive the
+        notifications, e.g. `notify.mobile_app_pixel_8`. (Notify entities /
+        `notify.send_message` are not supported, they can't carry action
+        buttons.)
+      selector:
+        text:
+    features:
+      name: 🎛️ Features
+      icon: mdi:toggle-switch-outline
+      collapsed: false
+      description: >
+        <center><p><small>
+          All features are enabled by default. Turn off whatever doesn't
+          apply to your setup.
+        </small></p></center>
+      input:
+        enable_consumables:
+          name: 🧹 Monitor consumable parts
+          description: >
+            Notifications for main brush, side brush, filter, sensors
+            (vacuum) and strainer, cleaning brush (dock, if selected).
+          default: true
+          selector:
+            boolean:
+        enable_not_cleaned:
+          name: 📅 Monitor cleaning schedule
+          default: true
+          selector:
+            boolean:
+        enable_error_warning:
+          name: 🚨 Monitor errors/stuck
+          description: >
+            Warns as soon as the vacuum's and/or dock's generic error
+            sensor reports anything other than "no error" (e.g. stuck,
+            wheels off the ground, brush tangled).
+          default: true
+          selector:
+            boolean:
+        enable_water_warning:
+          name: 💧 Monitor water levels
+          description: >
+            Warns about clean water empty and/or dirty water tank full on
+            the dock (only relevant if you selected a dock above).
+          default: true
+          selector:
+            boolean:
+        enable_energy_window:
+          name: ⚡ Set off-peak charging window
+          description: Solar/price-driven off-peak window, see settings below.
+          default: true
+          selector:
+            boolean:
+        enable_battery_boost:
+          name: 🔋 Battery boost charging
+          description: >
+            When a cleaning round ends early with a low battery (can't
+            finish a full round on one charge anymore), temporarily turns
+            off `switch.*_off_peak_charging` so the dock charges
+            immediately, then re-enables it once the battery is full
+            again. Requires your model to expose the off-peak charging
+            switch.
+          default: true
+          selector:
+            boolean:
+    schedule_settings:
+      name: ⏰ Timing & Thresholds
+      icon: mdi:clock-outline
+      collapsed: true
+      input:
+        check_time:
+          name: ⏰ Check time (maintenance)
+          description: >
+            Time of day the daily check runs for consumable parts and
+            whether the vacuum has cleaned recently.
+          default: "07:00:00"
+          selector:
+            time:
+        cleaning_max_age_hours:
+          name: ⌛ Max time since last clean
+          description: >
+            Number of hours since the last clean after which a warning is
+            sent during the daily check.
+          default: 48
+          selector:
+            number:
+              min: 1
+              max: 168
+              step: 1
+              unit_of_measurement: hours
+        solar_peak_sensor:
+          name: "☀️ Solar peak sensor (optional)"
+          description: >
+            Sensor with tomorrow's expected solar peak time (e.g. from
+            Solcast), used to center the off-peak window on free
+            self-generated power. Leave empty to always use the cheapest
+            energy price.
+          default: []
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        price_sensor:
+          name: "💶 Energy price sensor (optional)"
+          description: >
+            Nord Pool (custom integration) sensor with a `raw_tomorrow`
+            attribute. Recommended: the window is then recalculated as soon
+            as tomorrow's prices arrive. Leave empty to auto-detect the first
+            sensor with `raw_tomorrow` at the daily check time below.
+          default: []
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        window_hours:
+          name: 📏 Off-peak window length
+          description: >
+            Total length of the off-peak window: with solar forecasting,
+            the margin before and after the peak combined; with price, the
+            cheapest consecutive number of hours.
+          default: 4
+          selector:
+            number:
+              min: 1
+              max: 12
+              step: 1
+              unit_of_measurement: hours
+        window_update_time:
+          name: ⏰ Off-peak window check time
+          description: >
+            Daily time at which the off-peak window is (re)calculated, as a
+            fallback — defaults to safely after tomorrow's day-ahead prices
+            are published. Also recalculated instantly whenever the solar
+            peak sensor changes or the price sensor gets tomorrow's prices.
+          default: "14:00:00"
+          selector:
+            time:
+        boost_low_battery_threshold:
+          name: "🔋 Boost: low battery threshold"
+          description: >
+            If the vacuum stops cleaning with its battery below this
+            percentage (and the round wasn't finished, see below), it's
+            treated as "battery couldn't finish the round" and off-peak
+            charging is temporarily disabled.
+          default: 30
+          selector:
+            number:
+              min: 5
+              max: 60
+              step: 5
+              unit_of_measurement: "%"
+        boost_incomplete_progress_threshold:
+          name: "🔋 Boost: incomplete round threshold"
+          description: >
+            If the cleaning-progress percentage is below this value when
+            the vacuum stops (combined with the low battery threshold
+            above), the round is considered incomplete rather than a
+            normal finish or a manual stop.
+          default: 90
+          selector:
+            number:
+              min: 50
+              max: 99
+              step: 1
+              unit_of_measurement: "%"
+        boost_full_battery_threshold:
+          name: "🔋 Boost: full battery threshold"
+          description: >
+            Battery percentage at which off-peak charging is re-enabled
+            after a boost, resuming normal price/solar-optimized charging.
+            If you switched off-peak charging off yourself in Home
+            Assistant, it is left off.
+          default: 95
+          selector:
+            number:
+              min: 80
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+    messages:
+      name: 💬 Notification Messages
+      icon: mdi:message-text-outline
+      collapsed: true
+      description: >
+        <center><p><small>
+          All defaults are in English — freely translate or reword any of
+          these.
+        </small></p></center>
+      input:
+        label_main_brush:
+          name: 🧹 Main brush label
+          default: Replace main brush
+          selector:
+            text:
+        label_side_brush:
+          name: 🧹 Side brush label
+          default: Replace side brush
+          selector:
+            text:
+        label_filter:
+          name: 🧹 Filter label
+          default: Replace filter
+          selector:
+            text:
+        label_sensor:
+          name: 🧹 Sensor label
+          default: Clean sensors
+          selector:
+            text:
+        label_dock_strainer:
+          name: 🧹 Dock strainer label
+          default: Clean dock strainer
+          selector:
+            text:
+        label_dock_brush:
+          name: 🧹 Dock cleaning brush label
+          default: Replace dock cleaning brush
+          selector:
+            text:
+        label_reset_button:
+          name: 🔘 Reset action button label
+          default: Reset
+          selector:
+            text:
+        msg_overdue_suffix:
+          name: ⌛ Overdue message suffix
+          description: >
+            Appended after the number of hours overdue, e.g. "12.3 {{ this }}".
+          default: hours overdue.
+          selector:
+            text:
+        title_not_cleaned:
+          name: 📅 "Not cleaned" notification title
+          default: "⚠️ Vacuum — hasn't cleaned in a while"
+          selector:
+            text:
+        msg_not_cleaned_prefix:
+          name: 📅 "Not cleaned" message prefix
+          description: Prefixed before the last-clean timestamp.
+          default: Last clean finished at
+          selector:
+            text:
+        title_error_vacuum:
+          name: 🚨 Vacuum error notification title
+          default: 🚨 Vacuum has a problem
+          selector:
+            text:
+        label_locate_button:
+          name: 📍 "Locate robot" button label
+          description: >
+            Label of the action button shown on the vacuum error
+            notification when the robot is trapped or its wheels are off the
+            ground. Pressing it makes the
+            vacuum play its "I'm here" sound (`vacuum.locate`).
+          default: Locate robot
+          selector:
+            text:
+        label_resume_button:
+          name: ▶️ "Resume robot" button label
+          description: >
+            Label of the second action button on the vacuum error
+            notification when the robot is trapped or its wheels are off the
+            ground. Pressing it resumes/starts the vacuum (`vacuum.start`).
+          default: Resume robot
+          selector:
+            text:
+        error_names:
+          name: 🏷️ Custom error names (optional)
+          description: >
+            Overrides/extends the built-in friendly names for error codes,
+            as `code: Friendly name`, e.g. `robot_trapped: Robot is vastgelopen`.
+            Unknown codes fall back to a prettified version of the code.
+          default: {}
+          selector:
+            object:
+        title_error_dock:
+          name: 🚨 Dock error notification title
+          default: 🚨 Dock has a problem
+          selector:
+            text:
+        title_water_clean:
+          name: 💧 Clean water empty title
+          default: 💧 Dock — clean water empty
+          selector:
+            text:
+        msg_water_clean:
+          name: 💧 Clean water empty message
+          default: Refill the dock's clean water tank.
+          selector:
+            text:
+        title_water_dirty:
+          name: 🪣 Dirty water full title
+          default: 🪣 Dock — dirty water tank full
+          selector:
+            text:
+        msg_water_dirty:
+          name: 🪣 Dirty water full message
+          default: Empty the dock's dirty water tank.
+          selector:
+            text:
+        title_battery_boost:
+          name: 🔋 Battery boost notification title
+          default: 🔋 Battery boost charging active
+          selector:
+            text:
+        msg_battery_boost:
+          name: 🔋 Battery boost notification message
+          description: >
+            Sent when a round ended incomplete and off-peak charging was
+            disabled to force an immediate charge. The round's cleaning
+            progress and battery percentage are appended automatically.
+          default: >-
+            Last round ended early — off-peak charging paused so the dock
+            can charge right away.
+          selector:
+            text:
+
+mode: parallel
+max: 10
+
+triggers:
+  - trigger: time
+    at: !input check_time
+    id: daily-check
+  - trigger: event
+    event_type: mobile_app_notification_action
+    id: notification-action
+  - trigger: state
+    entity_id: !input solar_peak_sensor
+    id: window-update
+  - trigger: state
+    entity_id: !input price_sensor
+    attribute: raw_tomorrow
+    id: window-update
+  - trigger: time
+    at: !input window_update_time
+    id: window-update
+  - trigger: time_pattern
+    minutes: "/5"
+    id: problem-check
+
+conditions:
+  - alias: Ignore notification actions that aren't ours
+    condition: template
+    value_template: >
+      {{ trigger.id != 'notification-action'
+        or (trigger.event.data.action is string
+            and trigger.event.data.action.startswith('vacuum_')) }}
+
+actions:
+  - variables:
+      target_device: !input target_device
+      dock_device: !input dock_device
+      notify_action: !input notify_action
+      cleaning_max_age_hours: !input cleaning_max_age_hours
+      solar_peak_sensor: !input solar_peak_sensor
+      price_sensor: !input price_sensor
+      window_hours: !input window_hours
+      # Must match the time_pattern interval of the problem-check trigger.
+      poll_seconds: 300
+      enable_consumables: !input enable_consumables
+      enable_not_cleaned: !input enable_not_cleaned
+      enable_error_warning: !input enable_error_warning
+      enable_water_warning: !input enable_water_warning
+      enable_energy_window: !input enable_energy_window
+      enable_battery_boost: !input enable_battery_boost
+      boost_low_battery_threshold: !input boost_low_battery_threshold
+      boost_incomplete_progress_threshold: !input boost_incomplete_progress_threshold
+      boost_full_battery_threshold: !input boost_full_battery_threshold
+      label_main_brush: !input label_main_brush
+      label_side_brush: !input label_side_brush
+      label_filter: !input label_filter
+      label_sensor: !input label_sensor
+      label_dock_strainer: !input label_dock_strainer
+      label_dock_brush: !input label_dock_brush
+      label_reset_button: !input label_reset_button
+      msg_overdue_suffix: !input msg_overdue_suffix
+      title_not_cleaned: !input title_not_cleaned
+      msg_not_cleaned_prefix: !input msg_not_cleaned_prefix
+      title_error_vacuum: !input title_error_vacuum
+      title_error_dock: !input title_error_dock
+      label_locate_button: !input label_locate_button
+      label_resume_button: !input label_resume_button
+      custom_error_names: !input error_names
+      title_water_clean: !input title_water_clean
+      msg_water_clean: !input msg_water_clean
+      title_water_dirty: !input title_water_dirty
+      msg_water_dirty: !input msg_water_dirty
+      title_battery_boost: !input title_battery_boost
+      msg_battery_boost: !input msg_battery_boost
+      suffix_pairs: >
+        {{ [
+          ('main_brush_time_left', 'main_brush_time_left'),
+          ('side_brush_time_left', 'side_brush_time_left'),
+          ('filter_time_left', 'filter_time_left'),
+          ('sensor_time_left', 'sensor_time_left'),
+          ('strainer_time_left', 'strainer_time_left'),
+          ('cleaning_brush_time_left', 'cleaning_brush_time_left'),
+          ('reset_main_brush_consumable', 'reset_main_brush_consumable'),
+          ('reset_side_brush_consumable', 'reset_side_brush_consumable'),
+          ('reset_air_filter_consumable', 'reset_air_filter_consumable'),
+          ('reset_sensor_consumable', 'reset_sensor_consumable'),
+          ('reset_dock_strainer_consumable', 'reset_dock_strainer_consumable'),
+          ('reset_dock_cleaning_brush_consumable', 'reset_dock_cleaning_brush_consumable'),
+          ('vacuum_error', 'vacuum_error'),
+          ('dock_error', 'dock_error'),
+          ('off_peak_start', 'off_peak_start'),
+          ('off_peak_end', 'off_peak_end'),
+          ('clean_box_empty', 'clean_box_empty'),
+          ('dirty_box_full', 'dirty_box_full'),
+          ('last_clean_end', 'last_clean_end'),
+          ('last_clean_end', 'einde_laatste_schoonmaak'),
+          ('battery', 'battery'),
+          ('battery', 'batterij'),
+          ('cleaning_progress', 'cleaning_progress'),
+          ('in_cleaning', 'in_cleaning'),
+          ('in_cleaning', 'schoonmaken'),
+          ('off_peak_switch', 'off_peak_charging'),
+          ('clean_box_empty', 'clean_water_box'),
+          ('dirty_box_full', 'dirty_water_box'),
+          ('reset_dock_strainer_consumable', 'reset_strainer_consumable'),
+          ('reset_dock_cleaning_brush_consumable', 'reset_cleaning_brush_consumable')
+        ] }}
+      device_entity_keys: >
+        {% set de = device_entities(target_device) %}
+        {% set ns = namespace(entries=[]) %}
+        {% for ent in de %}
+          {% for key, suffix in suffix_pairs %}
+            {% if ent.endswith('_' + suffix) %}
+              {% set ns.entries = ns.entries + [{'key': key, 'entity': ent}] %}
+            {% endif %}
+          {% endfor %}
+        {% endfor %}
+        {{ ns.entries }}
+      dock_entity_keys: >
+        {% if dock_device not in [None, '', []] %}
+          {% set de = device_entities(dock_device) %}
+          {% set ns = namespace(entries=[]) %}
+          {% for ent in de %}
+            {% for key, suffix in suffix_pairs %}
+              {% if ent.endswith('_' + suffix) %}
+                {% set ns.entries = ns.entries + [{'key': key, 'entity': ent}] %}
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+          {{ ns.entries }}
+        {% else %}
+          []
+        {% endif %}
+      all_entity_keys: "{{ device_entity_keys + dock_entity_keys }}"
+      consumables: >
+        {% set pairs = [
+          ('main_brush_time_left', 'reset_main_brush_consumable', label_main_brush, 'mdi:broom'),
+          ('side_brush_time_left', 'reset_side_brush_consumable', label_side_brush, 'mdi:fan'),
+          ('filter_time_left', 'reset_air_filter_consumable', label_filter, 'mdi:air-filter'),
+          ('sensor_time_left', 'reset_sensor_consumable', label_sensor, 'mdi:radar'),
+          ('strainer_time_left', 'reset_dock_strainer_consumable', label_dock_strainer, 'mdi:filter-variant'),
+          ('cleaning_brush_time_left', 'reset_dock_cleaning_brush_consumable', label_dock_brush, 'mdi:broom')
+        ] %}
+        {% set ns = namespace(result=[]) %}
+        {% for sensor_key, reset_key, label, icon in pairs %}
+          {% set sensor_entity = all_entity_keys | selectattr('key', 'eq', sensor_key) | map(attribute='entity') | list | first | default(none) %}
+          {% set reset_entity = all_entity_keys | selectattr('key', 'eq', reset_key) | map(attribute='entity') | list | first | default(none) %}
+          {% if sensor_entity and reset_entity %}
+            {% set ns.result = ns.result + [{'sensor': sensor_entity, 'reset': reset_entity, 'label': label, 'icon': icon}] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.result }}
+      last_cleaned_sensor: >
+        {{ device_entity_keys | selectattr('key', 'eq', 'last_clean_end') | map(attribute='entity') | list | first | default(none) }}
+      off_peak_start_entity: >
+        {{ device_entity_keys | selectattr('key', 'eq', 'off_peak_start') | map(attribute='entity') | list | first | default(none) }}
+      off_peak_end_entity: >
+        {{ device_entity_keys | selectattr('key', 'eq', 'off_peak_end') | map(attribute='entity') | list | first | default(none) }}
+      off_peak_switch_entity: >
+        {{ device_entity_keys | selectattr('key', 'eq', 'off_peak_switch') | map(attribute='entity') | list | first | default(none) }}
+      battery_entity: >
+        {{ device_entity_keys | selectattr('key', 'eq', 'battery') | map(attribute='entity') | list | first | default(none) }}
+      cleaning_progress_entity: >
+        {{ device_entity_keys | selectattr('key', 'eq', 'cleaning_progress') | map(attribute='entity') | list | first | default(none) }}
+      in_cleaning_entity: >
+        {{ device_entity_keys | selectattr('key', 'eq', 'in_cleaning') | map(attribute='entity') | list | first | default(none) }}
+      vacuum_entity: >
+        {{ device_entities(target_device) | select('match', 'vacuum\\.') | list | first | default(none) }}
+      # Per-vacuum suffix so notification tags of multiple robots don't collide.
+      tag_suffix: >
+        {{ vacuum_entity.split('.')[1] if vacuum_entity else target_device[:12] }}
+      default_error_names:
+        lidar_blocked: Lidar blocked
+        bumper_stuck: Bumper stuck
+        wheels_suspended: Wheels off the ground
+        cliff_sensor_error: Cliff sensor error
+        main_brush_jammed: Main brush jammed
+        side_brush_jammed: Side brush jammed
+        wheels_jammed: Wheels jammed
+        robot_trapped: Robot is trapped
+        no_dustbin: Dustbin missing
+        strainer_error: Strainer error
+        compass_error: Compass error
+        low_battery: Battery low
+        charging_error: Charging error
+        battery_error: Battery error
+        wall_sensor_dirty: Wall sensor dirty
+        robot_tilted: Robot is tilted
+        side_brush_error: Side brush error
+        fan_error: Fan error
+        dock: Dock error
+        optical_flow_sensor_dirt: Optical flow sensor dirty
+        vertical_bumper_pressed: Vertical bumper pressed
+        dock_locator_error: Dock locator error
+        return_to_dock_fail: Failed to return to dock
+        nogo_zone_detected: No-go zone detected
+        visual_sensor: Visual sensor error
+        light_touch: Light touch error
+        vibrarise_jammed: VibraRise jammed
+        robot_on_carpet: Robot stuck on carpet
+        filter_blocked: Filter blocked
+        invisible_wall_detected: Invisible wall detected
+        cannot_cross_carpet: Cannot cross carpet
+        internal_error: Internal error
+        collect_dust_error_3: Dust collection error (3)
+        collect_dust_error_4: Dust collection error (4)
+        mopping_roller_1: Mopping roller error (1)
+        mopping_roller_error_2: Mopping roller error (2)
+        clear_water_box_hoare: Clean water tank problem
+        dirty_water_box_hoare: Dirty water tank problem
+        sink_strainer_hoare: Sink strainer problem
+        clear_water_box_exception: Clean water tank exception
+        clear_brush_exception: Cleaning brush exception
+        clear_brush_exception_2: Cleaning brush exception (2)
+        filter_screen_exception: Filter screen exception
+        up_water_exception: Water supply exception
+        drain_water_exception: Water drain exception
+        temperature_protection: Temperature protection
+        clean_carousel_exception: Cleaning carousel exception
+        clean_carousel_water_full: Cleaning carousel water full
+        water_carriage_drop: Water carriage dropped
+        check_clean_carouse: Check cleaning carousel
+        audio_error: Audio error
+        no_dustbin_or_filter: Dustbin or filter missing
+        auto_empty_dock_fan_error: Auto-empty dock fan error
+        duct_blockage: Duct blocked
+        auto_empty_dock_voltage_error: Auto-empty dock voltage error
+        water_empty: Clean water tank empty
+        waste_water_tank_full: Dirty water tank full
+        maintenance_brush_jammed: Maintenance brush jammed
+        dirty_tank_latch_open: Dirty tank latch open
+        cleaning_tank_full_or_blocked: Cleaning tank full or blocked
+      error_names: "{{ default_error_names | combine(custom_error_names) }}"
+      error_sensors: >
+        {% set candidates = [
+          ('vacuum_error', title_error_vacuum, 'persistent_vacuum_error_' ~ tag_suffix, ['clear_water_box_hoare', 'dirty_water_box_hoare']),
+          ('dock_error', title_error_dock, 'persistent_vacuum_dock_error_' ~ tag_suffix, ['water_empty', 'waste_water_tank_full'])
+        ] %}
+        {% set ns = namespace(result=[]) %}
+        {% for key, title, tag, water_states in candidates %}
+          {% set ent = all_entity_keys | selectattr('key', 'eq', key) | map(attribute='entity') | list | first | default(none) %}
+          {% if ent %}
+            {% set ns.result = ns.result + [{'entity': ent, 'title': title, 'tag': tag, 'water_states': water_states}] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.result }}
+      water_checks: >
+        {% set candidates = [
+          ('clean_box_empty', title_water_clean, msg_water_clean, 'mdi:water-alert', 'persistent_vacuum_water_clean_' ~ tag_suffix),
+          ('dirty_box_full', title_water_dirty, msg_water_dirty, 'mdi:delete-alert', 'persistent_vacuum_water_dirty_' ~ tag_suffix)
+        ] %}
+        {% set ns = namespace(result=[]) %}
+        {% for key, title, message, icon, tag in candidates %}
+          {% set ent = all_entity_keys | selectattr('key', 'eq', key) | map(attribute='entity') | list | first | default(none) %}
+          {% if ent %}
+            {% set ns.result = ns.result + [{'entity': ent, 'title': title, 'message': message, 'icon': icon, 'tag': tag}] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.result }}
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: daily-check
+        sequence:
+          - alias: Check consumable parts
+            if:
+              - condition: template
+                value_template: "{{ enable_consumables }}"
+            then:
+              - repeat:
+                  for_each: "{{ consumables }}"
+                  sequence:
+                    - variables:
+                        item_state: "{{ states(repeat.item.sensor) }}"
+                        item_tag: "persistent_vacuum_{{ repeat.item.sensor.split('.')[-1] }}"
+                        # Time-left sensors report seconds by default, but the
+                        # display unit can be changed by the user.
+                        overdue_hours: >
+                          {% set unit = state_attr(repeat.item.sensor, 'unit_of_measurement') %}
+                          {% set per_hour = {'s': 3600, 'min': 60, 'h': 1, 'd': 1 / 24}.get(unit, 3600) %}
+                          {{ ((item_state | float(0) | abs) / per_hour) | round(1) }}
+                    - if:
+                        - condition: template
+                          value_template: >
+                            {{ item_state not in ['unknown', 'unavailable', none]
+                              and item_state | float(0) <= 0 }}
+                      then:
+                        - alias: Warn that a part needs replacing/cleaning
+                          action: "{{ notify_action }}"
+                          data:
+                            title: "🧹 {{ repeat.item.label }}"
+                            message: "{{ overdue_hours }} {{ msg_overdue_suffix }}"
+                            data:
+                              group: vacuum
+                              tag: "{{ item_tag }}"
+                              sticky: true
+                              persistent: true
+                              notification_icon: "{{ repeat.item.icon }}"
+                              actions:
+                                - action: "vacuum_reset:{{ repeat.item.reset }}"
+                                  title: "{{ label_reset_button }}"
+                      else:
+                        - alias: Clear notification once part is OK again
+                          action: "{{ notify_action }}"
+                          data:
+                            message: clear_notification
+                            data:
+                              tag: "{{ item_tag }}"
+          - alias: Check whether the vacuum hasn't cleaned in a while
+            if:
+              - condition: template
+                value_template: "{{ enable_not_cleaned }}"
+            then:
+              - if:
+                  - condition: template
+                    value_template: "{{ last_cleaned_sensor is not none }}"
+                  - condition: template
+                    value_template: >
+                      {% set dt = as_datetime(states(last_cleaned_sensor), default=None) %}
+                      {{ dt is not none and dt < (now() - timedelta(hours=cleaning_max_age_hours)) }}
+                then:
+                  - action: "{{ notify_action }}"
+                    data:
+                      title: "{{ title_not_cleaned }}"
+                      message: >
+                        {{ msg_not_cleaned_prefix }} {{ states(last_cleaned_sensor) }}.
+                      data:
+                        group: vacuum
+                        tag: "persistent_vacuum_not_cleaned_{{ tag_suffix }}"
+                        sticky: true
+                        persistent: true
+                        notification_icon: mdi:robot-vacuum
+                else:
+                  - action: "{{ notify_action }}"
+                    data:
+                      message: clear_notification
+                      data:
+                        tag: "persistent_vacuum_not_cleaned_{{ tag_suffix }}"
+      - conditions:
+          - condition: trigger
+            id: notification-action
+          - condition: template
+            value_template: >
+              {{ trigger.event.data.action is defined
+                and trigger.event.data.action.startswith('vacuum_reset:') }}
+        sequence:
+          - variables:
+              reset_entity: "{{ trigger.event.data.action.split(':', 1)[1] }}"
+              reset_consumable: >
+                {{ consumables | selectattr('reset', 'eq', reset_entity) | list | first | default(none) }}
+          - alias: Only act on reset buttons that belong to this vacuum/dock
+            condition: template
+            value_template: "{{ reset_consumable is not none }}"
+          - alias: Reset part from notification
+            action: button.press
+            target:
+              entity_id: "{{ reset_entity }}"
+          - action: "{{ notify_action }}"
+            data:
+              message: clear_notification
+              data:
+                tag: "persistent_vacuum_{{ reset_consumable.sensor.split('.')[-1] }}"
+      - conditions:
+          - condition: trigger
+            id: notification-action
+          - condition: template
+            value_template: >
+              {{ vacuum_entity is not none
+                and trigger.event.data.action == 'vacuum_locate:' ~ vacuum_entity }}
+        sequence:
+          - alias: Make the vacuum announce its location
+            action: vacuum.locate
+            target:
+              entity_id: "{{ vacuum_entity }}"
+      - conditions:
+          - condition: trigger
+            id: notification-action
+          - condition: template
+            value_template: >
+              {{ vacuum_entity is not none
+                and trigger.event.data.action == 'vacuum_resume:' ~ vacuum_entity }}
+        sequence:
+          - alias: Resume/start the vacuum
+            action: vacuum.start
+            target:
+              entity_id: "{{ vacuum_entity }}"
+      - conditions:
+          - condition: trigger
+            id: window-update
+          - condition: template
+            value_template: >
+              {{ enable_energy_window
+                and off_peak_start_entity is not none
+                and off_peak_end_entity is not none }}
+        sequence:
+          - alias: Recalculate off-peak window (solar preferred, price fallback)
+            variables:
+              solar_ts: >
+                {{ as_timestamp(states(solar_peak_sensor), default=0)
+                  if solar_peak_sensor not in [None, '', []] else 0 }}
+              window: >
+                {% if solar_ts | float(0) > 0 %}
+                  {% set half = window_hours | float * 1800 %}
+                  {{ {'start': (solar_ts | float - half) | timestamp_custom('%H:%M:%S'),
+                      'end': (solar_ts | float + half) | timestamp_custom('%H:%M:%S')} }}
+                {% else %}
+                  {% if price_sensor not in [None, '', []] %}
+                    {% set price_src = price_sensor %}
+                  {% else %}
+                    {% set price_src = states.sensor
+                      | selectattr('attributes.raw_today', 'defined')
+                      | selectattr('attributes.raw_tomorrow', 'defined')
+                      | map(attribute='entity_id') | list | first | default(none) %}
+                  {% endif %}
+                  {% set prices = (state_attr(price_src, 'raw_tomorrow') if price_src else []) or [] %}
+                  {% if prices | length > 0 %}
+                    {# Slot length (60 or 15 min) decides how many entries make up the window. #}
+                    {% set slot_start = as_datetime(prices[0].start | string) %}
+                    {% set slot_end = as_datetime(prices[0].end | string) %}
+                    {% set slot_seconds = (slot_end - slot_start).total_seconds()
+                      if slot_start and slot_end else 3600 %}
+                    {% set n = [1, (window_hours | float * 3600 / slot_seconds) | round(0) | int] | max %}
+                    {% set ns = namespace(best_start=none, best_end=none, best_avg=none) %}
+                    {% for i in range(0, (prices | length) - n + 1) %}
+                      {% set block = prices[i:i+n] %}
+                      {% set avg = (block | map(attribute='value') | map('float', 0) | sum) / n %}
+                      {% if ns.best_avg is none or avg < ns.best_avg %}
+                        {% set ns.best_avg = avg %}
+                        {% set ns.best_start = block[0].start %}
+                        {% set ns.best_end = block[-1].end %}
+                      {% endif %}
+                    {% endfor %}
+                    {% if ns.best_start is not none %}
+                      {{ {'start': (as_datetime(ns.best_start | string) | as_local).strftime('%H:%M:%S'),
+                          'end': (as_datetime(ns.best_end | string) | as_local).strftime('%H:%M:%S')} }}
+                    {% else %}
+                      {{ none }}
+                    {% endif %}
+                  {% else %}
+                    {{ none }}
+                  {% endif %}
+                {% endif %}
+          - alias: Keep the current window when no solar peak or prices are known yet
+            condition: template
+            value_template: "{{ window is mapping }}"
+          - action: time.set_value
+            data:
+              time: "{{ window.start }}"
+            target:
+              entity_id: "{{ off_peak_start_entity }}"
+          - action: time.set_value
+            data:
+              time: "{{ window.end }}"
+            target:
+              entity_id: "{{ off_peak_end_entity }}"
+      - conditions:
+          - condition: trigger
+            id: problem-check
+        sequence:
+          - alias: Check error notifications (vacuum + dock)
+            if:
+              - condition: template
+                value_template: "{{ enable_error_warning }}"
+            then:
+              - repeat:
+                  for_each: "{{ error_sensors }}"
+                  sequence:
+                    - variables:
+                        error_state: "{{ states(repeat.item.entity) }}"
+                        is_error: >
+                          {{ error_state | lower not in ['none', 'ok', 'unknown', 'unavailable']
+                            and not (enable_water_warning and error_state in repeat.item.water_states) }}
+                    - alias: Only notify/clear when the state changed since the previous poll
+                      if:
+                        - condition: template
+                          value_template: >
+                            {{ error_state not in ['unknown', 'unavailable']
+                              and as_timestamp(now()) - as_timestamp(states[repeat.item.entity].last_changed) <= poll_seconds }}
+                      then:
+                        - if:
+                            - condition: template
+                              value_template: "{{ is_error }}"
+                          then:
+                            - action: "{{ notify_action }}"
+                              data:
+                                title: "{{ repeat.item.title }}"
+                                message: >
+                                  {{ error_names.get(error_state, error_state | replace('_', ' ') | capitalize) }}
+                                data:
+                                  group: vacuum
+                                  tag: "{{ repeat.item.tag }}"
+                                  sticky: true
+                                  persistent: true
+                                  notification_icon: mdi:robot-vacuum-alert
+                                  actions: >
+                                    {% if error_state in ['robot_trapped', 'wheels_suspended'] and vacuum_entity %}
+                                      {{ [{'action': 'vacuum_locate:' ~ vacuum_entity, 'title': label_locate_button},
+                                          {'action': 'vacuum_resume:' ~ vacuum_entity, 'title': label_resume_button}] }}
+                                    {% else %}
+                                      {{ [] }}
+                                    {% endif %}
+                          else:
+                            - action: "{{ notify_action }}"
+                              data:
+                                message: clear_notification
+                                data:
+                                  tag: "{{ repeat.item.tag }}"
+          - alias: Check water levels (vacuum + dock)
+            if:
+              - condition: template
+                value_template: "{{ enable_water_warning }}"
+            then:
+              - repeat:
+                  for_each: "{{ water_checks }}"
+                  sequence:
+                    - variables:
+                        water_state: "{{ states(repeat.item.entity) }}"
+                    - alias: Only notify/clear when the state changed since the previous poll
+                      if:
+                        - condition: template
+                          value_template: >
+                            {{ water_state in ['on', 'off']
+                              and as_timestamp(now()) - as_timestamp(states[repeat.item.entity].last_changed) <= poll_seconds }}
+                      then:
+                        - if:
+                            - condition: template
+                              value_template: "{{ water_state == 'on' }}"
+                          then:
+                            - action: "{{ notify_action }}"
+                              data:
+                                title: "{{ repeat.item.title }}"
+                                message: "{{ repeat.item.message }}"
+                                data:
+                                  group: vacuum
+                                  tag: "{{ repeat.item.tag }}"
+                                  sticky: true
+                                  persistent: true
+                                  notification_icon: "{{ repeat.item.icon }}"
+                          else:
+                            - action: "{{ notify_action }}"
+                              data:
+                                message: clear_notification
+                                data:
+                                  tag: "{{ repeat.item.tag }}"
+          - alias: Battery boost charging (force charge after incomplete round)
+            if:
+              - condition: template
+                value_template: >
+                  {{ enable_battery_boost
+                    and battery_entity is not none
+                    and cleaning_progress_entity is not none
+                    and in_cleaning_entity is not none
+                    and off_peak_switch_entity is not none }}
+            then:
+              - variables:
+                  battery_level: "{{ states(battery_entity) | float(100) }}"
+                  progress_level: "{{ states(cleaning_progress_entity) | float(100) }}"
+                  is_cleaning: "{{ states(in_cleaning_entity) == 'on' }}"
+                  off_peak_is_on: "{{ states(off_peak_switch_entity) == 'on' }}"
+              - if:
+                  - condition: template
+                    value_template: >
+                      {{ not is_cleaning and off_peak_is_on
+                        and battery_level < boost_low_battery_threshold
+                        and progress_level < boost_incomplete_progress_threshold }}
+                then:
+                  - alias: Disable off-peak restriction so the dock charges immediately
+                    action: switch.turn_off
+                    target:
+                      entity_id: "{{ off_peak_switch_entity }}"
+                  - action: "{{ notify_action }}"
+                    data:
+                      title: "{{ title_battery_boost }}"
+                      message: >
+                        {{ msg_battery_boost }} ({{ progress_level | round(0) }}% / {{ battery_level | round(0) }}%)
+                      data:
+                        group: vacuum
+                        tag: "persistent_vacuum_battery_boost_{{ tag_suffix }}"
+                        sticky: false
+                        notification_icon: mdi:battery-charging-outline
+              - if:
+                  - condition: template
+                    value_template: >
+                      {{ not off_peak_is_on
+                        and battery_level >= boost_full_battery_threshold
+                        and states[off_peak_switch_entity].context.user_id is none }}
+                then:
+                  - alias: Fully charged again — restore off-peak schedule
+                    action: switch.turn_on
+                    target:
+                      entity_id: "{{ off_peak_switch_entity }}"
+                  - action: "{{ notify_action }}"
+                    data:
+                      message: clear_notification
+                      data:
+                        tag: "persistent_vacuum_battery_boost_{{ tag_suffix }}"
