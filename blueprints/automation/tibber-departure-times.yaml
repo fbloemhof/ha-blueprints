@@ -1,5 +1,5 @@
 blueprint:
-  name: 🚗 Tibber Smart Charging — Departure Times from Calendar
+  name: Tibber Smart Charging — Departure Times from Calendar
   description: |
     # 🚗 Tibber departure times from your calendar 📅
     Keeps the weekly departure times of **Tibber smart charging** in sync with your calendar, so the car is charged (as cheaply as possible) when you actually leave — and Tibber doesn't rush to charge on days you stay home.
@@ -7,7 +7,7 @@ blueprint:
     Once a day the blueprint looks at the next 7 days of a calendar and works out a departure time for every weekday:
 
     - 🏢 **Keyword events** — an event whose title contains one of your keywords (e.g. `office`, `work`) sets a **fixed departure time** (default 07:30).
-    - 🏷️ **Tagged events** — an event whose title contains the tag (default `[auto]`, e.g. *Dentist Utrecht [auto]*) sets the departure time to **the event start minus an offset** (default 60 minutes). All-day tagged events use the fixed time.
+    - 🏷️ **Tagged events** — an event whose title contains the tag (default `[car]`, e.g. *Dentist Utrecht [car]*) sets the departure time to **the event start minus an offset** (default 60 minutes). All-day tagged events use the fixed time.
     - 🕳️ **No matching event** — the departure time for that day is cleared (or left alone, your choice).
 
     With several matching events on one day, the earliest departure time wins. Only days that actually change are sent to Tibber.
@@ -69,7 +69,7 @@ blueprint:
             Events whose title contains this text (case-insensitive) get a
             departure time of the event start minus the offset below. Leave
             empty to disable.
-          default: "[auto]"
+          default: "[car]"
           selector:
             text:
         offset_minutes:

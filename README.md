@@ -5,7 +5,7 @@ Blueprints I use in my own Home Assistant and share with the community.
 | Blueprint | Description |
 | --- | --- |
 | [🧹 Vacuum Maintenance & Off-Peak Charging (Roborock)](#-vacuum-maintenance--off-peak-charging-roborock) | Consumables, errors, dock water levels and solar/price-driven off-peak charging for Roborock vacuums |
-| [🚗 Tibber Smart Charging — Departure Times from Calendar](#-tibber-smart-charging--departure-times-from-calendar) | Sets the weekly Tibber smart-charging departure times from your calendar |
+| [Tibber Smart Charging — Departure Times from Calendar](#tibber-smart-charging--departure-times-from-calendar) | Sets the weekly Tibber smart-charging departure times from your calendar |
 
 ---
 
@@ -91,7 +91,7 @@ Each feature can be switched off on its own.
   unique per vacuum. The optional dock picker no longer
   shows "unknown device" when left empty.
 
-## 🚗 Tibber Smart Charging — Departure Times from Calendar
+## Tibber Smart Charging — Departure Times from Calendar
 
 [![Open your Home Assistant instance and show the blueprint import dialog with this blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ffbloemhof%2Fha-blueprints%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Ftibber-departure-times.yaml)
 
@@ -104,8 +104,8 @@ out a departure time for each weekday:
 
 - 🏢 **Keyword events**: an event whose title contains one of your keywords (for
   example `office`) sets a fixed departure time (default 07:30).
-- 🏷️ **Tagged events**: an event whose title contains the tag (default `[auto]`,
-  for example *Dentist [auto]*) sets the departure time to the event start minus an
+- 🏷️ **Tagged events**: an event whose title contains the tag (default `[car]`,
+  for example *Dentist [car]*) sets the departure time to the event start minus an
   offset (default 60 minutes). All-day tagged events use the fixed time.
 - 🕳️ **No matching event**: the departure time for that day is cleared, or left
   as it is if you switch that option off.
