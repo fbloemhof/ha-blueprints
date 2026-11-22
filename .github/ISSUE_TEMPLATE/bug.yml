@@ -1,0 +1,43 @@
+name: Something doesn't work
+description: A blueprint that fails, does the wrong thing or won't import
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please don't paste tokens, addresses, phone names or other personal data. Replace entity IDs with something generic if you like.
+  - type: dropdown
+    id: blueprint
+    attributes:
+      label: Which blueprint?
+      options:
+        - Vacuum Maintenance & Off-Peak Charging (Roborock)
+        - Tibber Smart Charging — Departure Times from Calendar
+        - Car Preconditioning Before Departure
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: input
+    id: ha
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.11.2"
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Your automation's inputs
+      description: Automation editor → ⋮ → Edit in YAML, copy the `use_blueprint` part
+      render: yaml
+  - type: textarea
+    id: trace
+    attributes:
+      label: Trace or log lines
+      description: Automation editor → ⋮ → Traces (the step that failed), or Settings → System → Logs
+      render: text

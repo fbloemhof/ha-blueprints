@@ -1,0 +1,21 @@
+name: Idea or wish
+description: Something you'd like one of the blueprints to do
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: blueprint
+    attributes:
+      label: Which blueprint?
+      options:
+        - Vacuum Maintenance & Off-Peak Charging (Roborock)
+        - Tibber Smart Charging — Departure Times from Calendar
+        - Car Preconditioning Before Departure
+        - A new blueprint
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like it to do, and why?
+    validations:
+      required: true
