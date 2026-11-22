@@ -40,7 +40,8 @@ blueprint:
         auto-empty/auto-wash dock. That's where the water tanks and any
         extra consumable parts (strainer, cleaning brush) live. Leave empty
         if you don't have a dock or only want to monitor the vacuum itself.
-      default: []
+      # Empty string, not []: the device picker shows "unknown device" for [].
+      default: ""
       selector:
         device:
           filter:

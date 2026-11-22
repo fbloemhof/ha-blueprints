@@ -16,6 +16,16 @@ One blueprint to monitor a Roborock vacuum (and optionally its dock) through the
 official [Roborock integration](https://www.home-assistant.io/integrations/roborock/).
 Pick the vacuum and dock devices; all entities are detected automatically.
 
+<img src="docs/images/vacuum-setup.png" alt="Blueprint setup: vacuum, dock, notify action and feature toggles" width="700">
+
+<details>
+<summary>More screenshots</summary>
+
+<img src="docs/images/vacuum-description.png" alt="Blueprint description in the automation editor" width="700">
+<img src="docs/images/vacuum-timing.png" alt="Timing and threshold settings, including solar peak and price sensor" width="700">
+
+</details>
+
 ### Features
 
 - 🧹 **Consumable parts**: main brush, side brush, filter and sensors on the vacuum,
@@ -75,7 +85,8 @@ Each feature can be switched off on its own.
   state change, and the off-peak window supports 15-minute prices. There is a new
   price sensor input, and the window is kept when no prices are known. Notification
   buttons are only handled by the instance that owns the entities, and tags are
-  unique per vacuum.
+  unique per vacuum. The optional dock picker no longer
+  shows "unknown device" when left empty.
 
 ## License
 
