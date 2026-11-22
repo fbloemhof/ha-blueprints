@@ -5,6 +5,7 @@ Blueprints I use in my own Home Assistant and share with the community.
 | Blueprint | Description |
 | --- | --- |
 | [🧹 Vacuum Maintenance & Off-Peak Charging (Roborock)](#-vacuum-maintenance--off-peak-charging-roborock) | Consumables, errors, dock water levels and solar/price-driven off-peak charging for Roborock vacuums |
+| [🚗 Tibber Smart Charging — Departure Times from Calendar](#-tibber-smart-charging--departure-times-from-calendar) | Sets the weekly Tibber smart-charging departure times from your calendar |
 
 ---
 
@@ -89,6 +90,60 @@ Each feature can be switched off on its own.
   buttons are only handled by the instance that owns the entities, and tags are
   unique per vacuum. The optional dock picker no longer
   shows "unknown device" when left empty.
+
+## 🚗 Tibber Smart Charging — Departure Times from Calendar
+
+[![Open your Home Assistant instance and show the blueprint import dialog with this blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ffbloemhof%2Fha-blueprints%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Ftibber-departure-times.yaml)
+
+Tibber smart charging needs a departure time for each weekday. This blueprint keeps
+those in sync with a calendar, so the car is ready when you actually leave and
+Tibber can charge at the cheapest hours on days you stay home.
+
+Every day at a time you choose, it reads the next 7 days of the calendar and works
+out a departure time for each weekday:
+
+- 🏢 **Keyword events**: an event whose title contains one of your keywords (for
+  example `office`) sets a fixed departure time (default 07:30).
+- 🏷️ **Tagged events**: an event whose title contains the tag (default `[auto]`,
+  for example *Dentist [auto]*) sets the departure time to the event start minus an
+  offset (default 60 minutes). All-day tagged events use the fixed time.
+- 🕳️ **No matching event**: the departure time for that day is cleared, or left
+  as it is if you switch that option off.
+
+With several matching events on one day, the earliest time wins. Only days that
+change are sent to Tibber.
+
+### Features
+
+- 📋 Optional persistent notification with the week plan and what changed,
+  dismissed automatically after a time you choose.
+- 🚨 Your own actions (for example a phone notification) when the calendar can't
+  be read. The departure times are left alone in that case.
+- 🌐 Weekday names and summary texts can be changed, so you can translate it.
+- 🔄 Optionally reloads the integration first, so changes made in the Tibber app
+  are seen before comparing.
+
+### Requirements
+
+- Home Assistant **2024.10** or newer
+- The [Tibber Grid Reward](https://github.com/JohNan/homeassistant-tibber_grid_rewards)
+  custom integration (HACS), which provides `tibber_grid_reward.set_departure_time`
+  and the `time.*_departure_time_<weekday>` entities
+- A calendar entity (Google, CalDAV, local calendar, ...)
+
+### Good to know
+
+- **Entity detection**: the departure-time entities of the selected car are found
+  by their entity-ID suffix (`_departure_time_monday` and so on). If you renamed
+  them, that day is skipped and named in the logbook entry.
+- **7 days**: Tibber stores one time per weekday, so planning further ahead isn't
+  possible.
+- **Event dates**: an event counts for the day it starts on.
+- **Multiple cars**: create one automation per car.
+
+### Changelog
+
+- **2026-11-22**: first public release.
 
 ## License
 
