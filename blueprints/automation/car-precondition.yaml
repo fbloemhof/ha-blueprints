@@ -140,7 +140,7 @@ blueprint:
         notify_message:
           name: Message
           description: "`{{ departure }}` = departure time, `{{ lead }}` = time to cancel in minutes."
-          default: "The car starts preconditioning in {{ lead }} minutes, for departure at {{ departure }}."
+          default: "The car starts preconditioning in {{ lead }} min, for departure at {{ departure }}."
           selector:
             text:
               multiline: true
@@ -284,7 +284,9 @@ actions:
         continue_on_timeout: true
       - alias: Clear the notification everywhere
         repeat:
-          for_each: "{{ notify_targets }}"
+          # clear_notification is a Companion app command; other notify
+          # services would show it as a message.
+          for_each: "{{ notify_targets | select('match', 'notify\\.mobile_app_') | list }}"
           sequence:
             - action: "{{ repeat.item }}"
               continue_on_error: true
