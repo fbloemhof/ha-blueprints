@@ -6,6 +6,7 @@ Blueprints I use in my own Home Assistant and share with the community.
 | --- | --- |
 | [🧹 Vacuum Maintenance & Off-Peak Charging (Roborock)](#-vacuum-maintenance--off-peak-charging-roborock) | Consumables, errors, dock water levels and solar/price-driven off-peak charging for Roborock vacuums |
 | [🚗 Tibber Smart Charging — Departure Times from Calendar](#-tibber-smart-charging--departure-times-from-calendar) | Sets the weekly Tibber smart-charging departure times from your calendar |
+| [❄️ Car Preconditioning Before Departure](#%EF%B8%8F-car-preconditioning-before-departure) | Preconditions the car before you leave, with a Cancel button on your phone first |
 
 ---
 
@@ -140,6 +141,53 @@ change are sent to Tibber.
   possible.
 - **Event dates**: an event counts for the day it starts on.
 - **Multiple cars**: create one automation per car.
+
+### Changelog
+
+- **2026-11-22**: first public release.
+
+## ❄️ Car Preconditioning Before Departure
+
+[![Open your Home Assistant instance and show the blueprint import dialog with this blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ffbloemhof%2Fha-blueprints%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fcar-precondition.yaml)
+
+Preconditions the car shortly before you leave, but asks first. A few minutes in
+advance a notification with a **Cancel** button goes to one or more phones. If
+nobody cancels, your preconditioning actions run.
+
+### Features
+
+- ⏰ **Any departure source**: an `input_datetime` (date + time), a timestamp
+  sensor, or a time-only entity (taken as today). Only departures today count.
+  Combine it with the [Tibber blueprint](#-tibber-smart-charging--departure-times-from-calendar)
+  rules or your own planner.
+- 🔔 **Cancel first**: the notification goes out *time to cancel + lead time*
+  before departure. Pressing **Cancel** on any phone stops it and clears the
+  notification on all of them.
+- 🔥 **Your own actions**: turn on a `climate` entity, a climate switch, press a
+  wake-up button first; any brand or integration works.
+- ✅ **Only when it makes sense** (all optional): outside temperature below a
+  threshold (weather entity or sensor), car at home (checked again right before
+  preconditioning), an event today with one of your keywords, and your own extra
+  conditions.
+- 🌐 Title, message and button text are configurable. Use `{{ departure }}` and
+  `{{ lead }}` in the message.
+
+### Requirements
+
+- Home Assistant **2024.10** or newer
+- The [Companion app](https://companion.home-assistant.io/) for the notification
+  (`notify.mobile_app_*`). Without notify targets the actions simply run at the
+  lead time.
+- A way to turn on your car's climate from Home Assistant
+
+### Good to know
+
+- **Timing**: the automation starts when the departure time minus *lead time* and
+  *time to cancel* is reached. If Home Assistant restarts inside that window, that
+  departure is skipped.
+- **Changing the departure** after the notification went out doesn't restart it.
+- **iOS**: notification and button work; channel and sticky options are
+  Android-only.
 
 ### Changelog
 

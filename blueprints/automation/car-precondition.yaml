@@ -1,0 +1,306 @@
+blueprint:
+  name: Car Preconditioning Before Departure
+  description: |
+    # 🚗 Warm car, no surprises ❄️
+    Preconditions your car shortly before you leave, and asks first: a notification with a **Cancel** button goes out a few minutes in advance. No reaction? Then your preconditioning actions run.
+
+    **How it works**
+    - ⏰ The departure time comes from any **date/time entity**: an `input_datetime` (date + time), a timestamp `sensor`, or a time-only entity (taken as today). Only departures **today** count.
+    - 🔔 *Notice time + lead time* before departure, a notification with a **Cancel** button goes to one or more phones.
+    - 🔥 *Lead time* before departure, unless someone pressed **Cancel**, the notification is cleared and **your actions** run: e.g. `climate.turn_on`, a Tesla climate switch, a wake-up button first. Works with any brand or integration.
+
+    **Only when it makes sense** (all optional)
+    - 🌡️ Outside temperature below a threshold (a `weather` entity or a temperature sensor).
+    - 🏠 The car is at home (`device_tracker`, `binary_sensor`, ...), checked again right before preconditioning.
+    - 📅 There's an event today whose title contains one of your keywords (e.g. `office`) in a calendar.
+    - ➕ Your own extra conditions.
+
+    Without notification targets the actions simply run at the lead time.
+
+    📱 Built for the Home Assistant Companion app (`notify.mobile_app_*`). The sticky/channel extras are Android-only; iOS shows the same notification and button.
+
+    🌐 Title, message and button text are configurable. Use `{{ departure }}` (HH:MM) and `{{ lead }}` (minutes) in the message.
+  domain: automation
+  author: fbloemhof
+  source_url: https://github.com/fbloemhof/ha-blueprints/blob/main/blueprints/automation/car-precondition.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    departure_entity:
+      name: ⏰ Departure time
+      description: >
+        Entity holding the next departure: an input_datetime with date and
+        time, a timestamp sensor, or a time-only entity (then taken as today).
+      selector:
+        entity:
+          filter:
+            - domain: input_datetime
+            - domain: sensor
+              device_class: timestamp
+            - domain: time
+    lead_minutes:
+      name: 🔥 Precondition this long before departure
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: min
+          mode: box
+    precondition_actions:
+      name: 🔥 Preconditioning actions
+      description: >
+        What to do to precondition the car, e.g. turn on a climate entity or a
+        climate switch. Add a wake-up action and a short delay first if your
+        car needs it.
+      selector:
+        action:
+    conditions_section:
+      name: ✅ Conditions
+      icon: mdi:filter-check-outline
+      input:
+        temperature_entity:
+          name: 🌡️ Outside temperature
+          description: A weather entity or a temperature sensor. Leave empty to always precondition.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: weather
+                - domain: sensor
+                  device_class: temperature
+        max_temperature:
+          name: 🌡️ Only below
+          default: 10
+          selector:
+            number:
+              min: -20
+              max: 40
+              step: 0.5
+              unit_of_measurement: °C
+              mode: box
+        home_entity:
+          name: 🏠 Car at home
+          description: >
+            Precondition only while this entity is `home` or `on` (device_tracker,
+            binary_sensor, ...). Leave empty to skip this check.
+          default: ""
+          selector:
+            entity:
+        calendar_entity:
+          name: 📅 Calendar
+          description: Together with the keywords below. Leave empty to skip this check.
+          default: ""
+          selector:
+            entity:
+              filter:
+                domain: calendar
+        keywords:
+          name: 📅 Keywords
+          description: >
+            Only precondition when today's calendar has an event whose title
+            contains one of these words (case-insensitive).
+          default: []
+          selector:
+            text:
+              multiple: true
+        extra_conditions:
+          name: ➕ Extra conditions
+          default: []
+          selector:
+            condition:
+    notification_section:
+      name: 🔔 Notification
+      icon: mdi:bell-outline
+      input:
+        notify_targets:
+          name: 🔔 Notify actions
+          description: >
+            Companion app notify actions, e.g. `notify.mobile_app_pixel_8`. Leave
+            empty to precondition without asking.
+          default: []
+          selector:
+            text:
+              multiple: true
+        notice_minutes:
+          name: ⏳ Time to cancel
+          description: How long before preconditioning the notification is sent.
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 60
+              unit_of_measurement: min
+              mode: box
+        notify_title:
+          name: Title
+          default: 🚗 Preconditioning
+          selector:
+            text:
+        notify_message:
+          name: Message
+          description: "`{{ departure }}` = departure time, `{{ lead }}` = time to cancel in minutes."
+          default: "The car starts preconditioning in {{ lead }} minutes, for departure at {{ departure }}."
+          selector:
+            text:
+              multiline: true
+        cancel_title:
+          name: Cancel button text
+          default: Cancel
+          selector:
+            text:
+        notify_channel:
+          name: Android notification channel
+          default: Car preconditioning
+          selector:
+            text:
+
+mode: single
+max_exceeded: silent
+
+trigger_variables:
+  departure_entity: !input departure_entity
+  lead_minutes: !input lead_minutes
+  notice_minutes: !input notice_minutes
+  notify_targets: !input notify_targets
+
+triggers:
+  # True from the notification moment until departure; fires once on the
+  # false -> true flip. Templates with now() are re-evaluated every minute.
+  - trigger: template
+    value_template: >
+      {%- set raw = states(departure_entity) -%}
+      {%- if raw in ['unknown', 'unavailable', ''] -%}
+        false
+      {%- else -%}
+        {%- set dep = today_at(raw[0:5]) if raw | length <= 8 else as_datetime(raw) -%}
+        {%- if dep is none -%}
+          false
+        {%- else -%}
+          {%- set dep = dep if dep.tzinfo else dep | as_local -%}
+          {%- set ask = (notice_minutes | int(0)) if notify_targets | count > 0 else 0 -%}
+          {{ dep.date() == now().date()
+             and dep - timedelta(minutes=lead_minutes | int(0) + ask) <= now() < dep }}
+        {%- endif -%}
+      {%- endif -%}
+
+variables:
+  temperature_entity: !input temperature_entity
+  max_temperature: !input max_temperature
+  home_entity: !input home_entity
+  calendar_entity: !input calendar_entity
+  keywords: !input keywords
+  cancel_title: !input cancel_title
+  notify_channel: !input notify_channel
+  cancel_action: "CAR_PRECONDITION_CANCEL_{{ this.entity_id | default('') }}"
+  tag: "car_precondition_{{ (this.entity_id | default('')) | replace('automation.', '') }}"
+  departure: >
+    {%- set raw = states(departure_entity) -%}
+    {{ raw[0:5] if raw | length <= 8 else (as_datetime(raw) | as_local).strftime('%H:%M') }}
+  lead: "{{ notice_minutes | int(0) }}"
+  outside_temperature: >
+    {%- if not temperature_entity -%}
+      none
+    {%- elif temperature_entity.startswith('weather.') -%}
+      {{ state_attr(temperature_entity, 'temperature') | float(none) }}
+    {%- else -%}
+      {{ states(temperature_entity) | float(none) }}
+    {%- endif -%}
+
+conditions:
+  - alias: Cold enough (or no temperature entity)
+    condition: template
+    value_template: >
+      {{ not temperature_entity
+         or (outside_temperature is number and outside_temperature < max_temperature | float) }}
+  - alias: Car at home (or no home entity)
+    condition: template
+    value_template: "{{ not home_entity or states(home_entity) in ['home', 'on'] }}"
+  - condition: and
+    conditions: !input extra_conditions
+
+actions:
+  - alias: Calendar keyword check
+    if:
+      - condition: template
+        value_template: "{{ calendar_entity != '' and keywords | count > 0 }}"
+    then:
+      - action: calendar.get_events
+        target:
+          entity_id: "{{ calendar_entity }}"
+        data:
+          start_date_time: "{{ today_at().isoformat() }}"
+          end_date_time: "{{ (today_at() + timedelta(days=1)).isoformat() }}"
+        response_variable: agenda
+      - if:
+          - condition: template
+            value_template: >
+              {%- set kw = keywords | map('lower') | reject('eq', '') | list -%}
+              {%- set titles = agenda[calendar_entity].events | default([])
+                   | map(attribute='summary') | map('default', '') | map('lower') | list -%}
+              {%- set ns = namespace(hit=false) -%}
+              {%- for t in titles -%}
+                {%- if kw | select('in', t) | list | count > 0 -%}{%- set ns.hit = true -%}{%- endif -%}
+              {%- endfor -%}
+              {{ not ns.hit }}
+        then:
+          - stop: No matching calendar event today
+
+  - if:
+      - condition: template
+        value_template: "{{ notify_targets | count > 0 }}"
+    then:
+      - variables:
+          title: !input notify_title
+          message: !input notify_message
+      - alias: Notification with cancel button
+        repeat:
+          for_each: "{{ notify_targets }}"
+          sequence:
+            - action: "{{ repeat.item }}"
+              continue_on_error: true
+              data:
+                title: "{{ title }}"
+                message: "{{ message }}"
+                data:
+                  tag: "{{ tag }}"
+                  timeout: "{{ (notice_minutes | int(0)) * 60 }}"
+                  channel: "{{ notify_channel }}"
+                  importance: high
+                  priority: high
+                  ttl: 0
+                  notification_icon: mdi:car-defrost-front
+                  actions:
+                    - action: "{{ cancel_action }}"
+                      title: "{{ cancel_title }}"
+      - alias: Wait for cancel
+        wait_for_trigger:
+          - trigger: event
+            event_type: mobile_app_notification_action
+            event_data:
+              action: "{{ cancel_action }}"
+        timeout:
+          minutes: "{{ notice_minutes | int(0) }}"
+        continue_on_timeout: true
+      - alias: Clear the notification everywhere
+        repeat:
+          for_each: "{{ notify_targets }}"
+          sequence:
+            - action: "{{ repeat.item }}"
+              continue_on_error: true
+              data:
+                message: clear_notification
+                data:
+                  tag: "{{ tag }}"
+      - if:
+          - condition: template
+            value_template: "{{ wait.trigger is not none }}"
+        then:
+          - stop: Cancelled
+
+  - alias: Car still at home
+    condition: template
+    value_template: "{{ not home_entity or states(home_entity) in ['home', 'on'] }}"
+
+  - alias: Precondition
+    sequence: !input precondition_actions
