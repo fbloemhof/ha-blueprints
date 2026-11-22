@@ -305,23 +305,24 @@ actions:
           notification_id: "{{ notification_id }}"
           title: "{{ summary_title }}"
           message: >
-            {%- macro label(p) -%}
-              {{ day_names[p.index] | default(p.day | capitalize) }} ({{ p.date }})
-            {%- endmacro -%}
-            {%- macro show(t) -%}{{ text_none if t == 'none' else t }}{%- endmacro -%}
-            ### 🔄 {{ text_changed }}
-
-            {% for p in changed -%}
-            - **{{ label(p) }}**: {{ show(p.current) }} ➡️ **{{ show(p.target) }}**{{ ' — ' ~ p.why if p.why }}
-            {% else -%}
-            *{{ text_no_changes }}*
-            {% endfor %}
-
-            ### 📋 {{ text_unchanged }}
-
-            {% for p in plan | rejectattr('update') -%}
-            - {{ label(p) }}: {{ show(p.current) }}{{ ' — ' ~ p.why if p.why }}
-            {% endfor %}
+            {#- Lines are collected in a list and joined with real newlines:
+                a folded YAML scalar would otherwise merge them into one paragraph. -#}
+            {%- set ns = namespace(lines=['### 🔄 ' ~ text_changed, '']) -%}
+            {%- for p in changed -%}
+              {%- set label = (day_names[p.index] | default(p.day | capitalize)) ~ ' ' ~ p.date -%}
+              {%- set old = text_none if p.current == 'none' else p.current -%}
+              {%- set new = text_none if p.target == 'none' else p.target -%}
+              {%- set ns.lines = ns.lines + ['- **' ~ label ~ '**: ' ~ old ~ ' ➡️ **' ~ new ~ '**' ~ ((' · ' ~ p.why) if p.why else '')] -%}
+            {%- else -%}
+              {%- set ns.lines = ns.lines + ['*' ~ text_no_changes ~ '*'] -%}
+            {%- endfor -%}
+            {%- set ns.lines = ns.lines + ['', '### 📋 ' ~ text_unchanged, ''] -%}
+            {%- for p in plan | rejectattr('update') -%}
+              {%- set label = (day_names[p.index] | default(p.day | capitalize)) ~ ' ' ~ p.date -%}
+              {%- set t = text_none if p.current == 'none' else '**' ~ p.current ~ '**' -%}
+              {%- set ns.lines = ns.lines + ['- ' ~ label ~ ': ' ~ t ~ ((' · ' ~ p.why) if p.why else '')] -%}
+            {%- endfor -%}
+            {{ ns.lines | join('\n') }}
       - if:
           - condition: template
             value_template: "{{ summary_minutes | int(0) > 0 }}"
