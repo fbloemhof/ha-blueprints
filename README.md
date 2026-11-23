@@ -38,10 +38,10 @@ Pick the vacuum and dock devices; all entities are detected automatically.
 - 📅 **Hasn't cleaned in a while**: daily check against the last clean.
 - 🚨 **Errors**: vacuum and dock error sensors with readable names, which you can
   override or translate. **Locate** and **Resume** buttons when the robot is trapped
-  or its wheels are off the ground. A notification is only sent or cleared when the
-  state changes, plus a daily reminder while it is still active.
-- 💧 **Dock water levels**: clean water tank empty, dirty water tank full, with a
-  daily reminder while the tank is still empty or full.
+  or its wheels are off the ground. Sent and cleared the moment the state changes,
+  plus a daily reminder while it is still active.
+- 💧 **Dock water levels**: clean water tank empty, dirty water tank full. Sent and
+  cleared immediately, with a daily reminder while the tank is still empty or full.
 - ⚡ **Off-peak charging window**: sets `time.*_off_peak_start` / `_end` around
   tomorrow's solar peak (for example from Solcast), or otherwise on the cheapest
   consecutive block of tomorrow's [Nord Pool](https://github.com/custom-components/nordpool)
@@ -71,9 +71,13 @@ Each feature can be switched off on its own.
   There are no errors.
 - **Dock**: on auto-empty/auto-wash models the dock is a separate device in Home
   Assistant. Select it under *🔌 Dock* for water levels and dock consumables.
-- **Errors and water levels** are checked every 5 minutes. A push message is only
-  sent when a state changes, so the 500-per-day push limit of the Companion app is
-  not at risk.
+- **Errors, water levels and battery boost** react immediately: template triggers
+  follow the auto-detected entities, so there is no polling. A safety-net check runs
+  3 times a day and catches anything a trigger missed (for example during a
+  restart). A push message is only sent when a state changes, so the 500-per-day
+  push limit of the Companion app is not at risk.
+- **After a restart** while a tank is still empty/full or an error is still active,
+  the notification is sent again.
 - **Off-peak window**: if neither a solar peak nor tomorrow's prices are available,
   the current window is left unchanged. Select the price sensor in the blueprint so
   the window is recalculated as soon as tomorrow's prices arrive.
@@ -86,6 +90,11 @@ Each feature can be switched off on its own.
 
 ### Changelog
 
+- **2026-11-23 (2)**: errors, water levels and battery boost now react immediately
+  through template triggers instead of a 5-minute poll; a safety-net check runs 3
+  times a day. An error or tank that recovers quickly is cleared right away. Error
+  and water entities are matched by domain, so `button.*_resolve_dock_error` can no
+  longer be mistaken for the dock error sensor.
 - **2026-11-23**: a skipped poll (restart, busy Home Assistant) no longer swallows an
   error or water-level change: changes are checked since the previous run. Problems
   that are still active are re-sent at the daily check time.
