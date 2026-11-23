@@ -39,8 +39,9 @@ Pick the vacuum and dock devices; all entities are detected automatically.
 - 🚨 **Errors**: vacuum and dock error sensors with readable names, which you can
   override or translate. **Locate** and **Resume** buttons when the robot is trapped
   or its wheels are off the ground. A notification is only sent or cleared when the
-  state changes.
-- 💧 **Dock water levels**: clean water tank empty, dirty water tank full.
+  state changes, plus a daily reminder while it is still active.
+- 💧 **Dock water levels**: clean water tank empty, dirty water tank full, with a
+  daily reminder while the tank is still empty or full.
 - ⚡ **Off-peak charging window**: sets `time.*_off_peak_start` / `_end` around
   tomorrow's solar peak (for example from Solcast), or otherwise on the cheapest
   consecutive block of tomorrow's [Nord Pool](https://github.com/custom-components/nordpool)
@@ -85,6 +86,9 @@ Each feature can be switched off on its own.
 
 ### Changelog
 
+- **2026-11-23**: a skipped poll (restart, busy Home Assistant) no longer swallows an
+  error or water-level change: changes are checked since the previous run. Problems
+  that are still active are re-sent at the daily check time.
 - **2026-11-22**: first public release. Errors and water levels now only notify on a
   state change, and the off-peak window supports 15-minute prices. There is a new
   price sensor input, and the window is kept when no prices are known. Notification

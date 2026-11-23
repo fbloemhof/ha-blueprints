@@ -8,8 +8,8 @@ blueprint:
 
     - 🧹 **Consumable parts** — main brush, side brush, filter, sensors (vacuum) + strainer and cleaning brush (dock, if selected). Notification includes a direct **Reset** action button that calls `button.reset_*_consumable`.
     - 📅 **Hasn't cleaned in a while** — daily check.
-    - 🚨 **Error notifications** — vacuum and dock (e.g. stuck, wheels off the ground, brush tangled), with **Locate** / **Resume** buttons when the robot is trapped. Polled every 5 minutes, but a notification is only sent (or cleared) when the error state actually changes — no push spam. Water-tank-related error codes are skipped here whenever 💧 water level monitoring is enabled, so a low/full tank doesn't trigger both a generic error notification and the dedicated water notification.
-    - 💧 **Dock water levels** — clean water empty, dirty water tank full. (The vacuum handles its own onboard water shortage, so that's not reported separately.)
+    - 🚨 **Error notifications** — vacuum and dock (e.g. stuck, wheels off the ground, brush tangled), with **Locate** / **Resume** buttons when the robot is trapped. Polled every 5 minutes, but a notification is only sent (or cleared) when the error state actually changes — no push spam. Changes are checked since the previous run, so a skipped poll (e.g. during a restart) doesn't swallow one, and problems that are still active are re-sent at the daily check time. Water-tank-related error codes are skipped here whenever 💧 water level monitoring is enabled, so a low/full tank doesn't trigger both a generic error notification and the dedicated water notification.
+    - 💧 **Dock water levels** — clean water empty, dirty water tank full; re-sent at the daily check time while still active. (The vacuum handles its own onboard water shortage, so that's not reported separately.)
     - ⚡ **Off-peak charging window** (`time.*_off_peak_start`/`_end`) — prefers the expected solar peak (free self-generated power), falling back to the cheapest consecutive block of tomorrow's prices from a [Nord Pool (custom integration)](https://github.com/custom-components/nordpool) sensor. Works with hourly and 15-minute prices. If no prices are known yet, the current window is left untouched.
     - 🔋 **Battery boost charging** — if a cleaning round ends early with a low battery (aging battery that can't finish a full round anymore), temporarily disables `switch.*_off_peak_charging` so the dock charges immediately instead of waiting for the off-peak window. Re-enables off-peak charging once the battery is full again — unless you turned the switch off yourself in Home Assistant.
 
@@ -408,6 +408,14 @@ actions:
       window_hours: !input window_hours
       # Must match the time_pattern interval of the problem-check trigger.
       poll_seconds: 300
+      # Look back to the previous run instead of a fixed poll interval, so a
+      # skipped poll (restart, stalled event loop) doesn't swallow a change.
+      check_window: >
+        {% set prev = this.attributes.last_triggered if this is not none else none %}
+        {% set since = as_timestamp(now()) - as_timestamp(prev, as_timestamp(now())) %}
+        {{ [poll_seconds, since] | max }}
+      # The daily check re-sends notifications for problems that are still active.
+      remind_active_problems: "{{ trigger.id == 'daily-check' }}"
       enable_consumables: !input enable_consumables
       enable_not_cleaned: !input enable_not_cleaned
       enable_error_warning: !input enable_error_warning
@@ -819,144 +827,150 @@ actions:
               time: "{{ window.end }}"
             target:
               entity_id: "{{ off_peak_end_entity }}"
-      - conditions:
-          - condition: trigger
-            id: problem-check
-        sequence:
-          - alias: Check error notifications (vacuum + dock)
-            if:
-              - condition: template
-                value_template: "{{ enable_error_warning }}"
-            then:
-              - repeat:
-                  for_each: "{{ error_sensors }}"
-                  sequence:
-                    - variables:
-                        error_state: "{{ states(repeat.item.entity) }}"
-                        is_error: >
-                          {{ error_state | lower not in ['none', 'ok', 'unknown', 'unavailable']
-                            and not (enable_water_warning and error_state in repeat.item.water_states) }}
-                    - alias: Only notify/clear when the state changed since the previous poll
-                      if:
+  - alias: Problem checks (errors, water levels, battery boost)
+    if:
+      - condition: trigger
+        id:
+          - problem-check
+          - daily-check
+    then:
+      - alias: Check error notifications (vacuum + dock)
+        if:
+          - condition: template
+            value_template: "{{ enable_error_warning }}"
+        then:
+          - repeat:
+              for_each: "{{ error_sensors }}"
+              sequence:
+                - variables:
+                    error_state: "{{ states(repeat.item.entity) }}"
+                    is_error: >
+                      {{ error_state | lower not in ['none', 'ok', 'unknown', 'unavailable']
+                        and not (enable_water_warning and error_state in repeat.item.water_states) }}
+                - alias: Only notify/clear when the state changed since the previous poll
+                  if:
+                    - condition: template
+                      value_template: >
+                        {{ error_state not in ['unknown', 'unavailable']
+                          and ((as_timestamp(now()) - as_timestamp(states[repeat.item.entity].last_changed) <= check_window)
+                               or (remind_active_problems and is_error)) }}
+                  then:
+                    - if:
                         - condition: template
-                          value_template: >
-                            {{ error_state not in ['unknown', 'unavailable']
-                              and as_timestamp(now()) - as_timestamp(states[repeat.item.entity].last_changed) <= poll_seconds }}
+                          value_template: "{{ is_error }}"
                       then:
-                        - if:
-                            - condition: template
-                              value_template: "{{ is_error }}"
-                          then:
-                            - action: "{{ notify_action }}"
-                              data:
-                                title: "{{ repeat.item.title }}"
-                                message: >
-                                  {{ error_names.get(error_state, error_state | replace('_', ' ') | capitalize) }}
-                                data:
-                                  group: vacuum
-                                  tag: "{{ repeat.item.tag }}"
-                                  sticky: true
-                                  persistent: true
-                                  notification_icon: mdi:robot-vacuum-alert
-                                  actions: >
-                                    {% if error_state in ['robot_trapped', 'wheels_suspended'] and vacuum_entity %}
-                                      {{ [{'action': 'vacuum_locate:' ~ vacuum_entity, 'title': label_locate_button},
-                                          {'action': 'vacuum_resume:' ~ vacuum_entity, 'title': label_resume_button}] }}
-                                    {% else %}
-                                      {{ [] }}
-                                    {% endif %}
-                          else:
-                            - action: "{{ notify_action }}"
-                              data:
-                                message: clear_notification
-                                data:
-                                  tag: "{{ repeat.item.tag }}"
-          - alias: Check water levels (vacuum + dock)
-            if:
-              - condition: template
-                value_template: "{{ enable_water_warning }}"
-            then:
-              - repeat:
-                  for_each: "{{ water_checks }}"
-                  sequence:
-                    - variables:
-                        water_state: "{{ states(repeat.item.entity) }}"
-                    - alias: Only notify/clear when the state changed since the previous poll
-                      if:
+                        - action: "{{ notify_action }}"
+                          data:
+                            title: "{{ repeat.item.title }}"
+                            message: >
+                              {{ error_names.get(error_state, error_state | replace('_', ' ') | capitalize) }}
+                            data:
+                              group: vacuum
+                              tag: "{{ repeat.item.tag }}"
+                              sticky: true
+                              persistent: true
+                              notification_icon: mdi:robot-vacuum-alert
+                              actions: >
+                                {% if error_state in ['robot_trapped', 'wheels_suspended'] and vacuum_entity %}
+                                  {{ [{'action': 'vacuum_locate:' ~ vacuum_entity, 'title': label_locate_button},
+                                      {'action': 'vacuum_resume:' ~ vacuum_entity, 'title': label_resume_button}] }}
+                                {% else %}
+                                  {{ [] }}
+                                {% endif %}
+                      else:
+                        - action: "{{ notify_action }}"
+                          data:
+                            message: clear_notification
+                            data:
+                              tag: "{{ repeat.item.tag }}"
+      - alias: Check water levels (vacuum + dock)
+        if:
+          - condition: template
+            value_template: "{{ enable_water_warning }}"
+        then:
+          - repeat:
+              for_each: "{{ water_checks }}"
+              sequence:
+                - variables:
+                    water_state: "{{ states(repeat.item.entity) }}"
+                - alias: Only notify/clear when the state changed since the previous poll
+                  if:
+                    - condition: template
+                      value_template: >
+                        {{ water_state in ['on', 'off']
+                          and ((as_timestamp(now()) - as_timestamp(states[repeat.item.entity].last_changed) <= check_window)
+                               or (remind_active_problems and water_state == 'on')) }}
+                  then:
+                    - if:
                         - condition: template
-                          value_template: >
-                            {{ water_state in ['on', 'off']
-                              and as_timestamp(now()) - as_timestamp(states[repeat.item.entity].last_changed) <= poll_seconds }}
+                          value_template: "{{ water_state == 'on' }}"
                       then:
-                        - if:
-                            - condition: template
-                              value_template: "{{ water_state == 'on' }}"
-                          then:
-                            - action: "{{ notify_action }}"
-                              data:
-                                title: "{{ repeat.item.title }}"
-                                message: "{{ repeat.item.message }}"
-                                data:
-                                  group: vacuum
-                                  tag: "{{ repeat.item.tag }}"
-                                  sticky: true
-                                  persistent: true
-                                  notification_icon: "{{ repeat.item.icon }}"
-                          else:
-                            - action: "{{ notify_action }}"
-                              data:
-                                message: clear_notification
-                                data:
-                                  tag: "{{ repeat.item.tag }}"
-          - alias: Battery boost charging (force charge after incomplete round)
-            if:
+                        - action: "{{ notify_action }}"
+                          data:
+                            title: "{{ repeat.item.title }}"
+                            message: "{{ repeat.item.message }}"
+                            data:
+                              group: vacuum
+                              tag: "{{ repeat.item.tag }}"
+                              sticky: true
+                              persistent: true
+                              notification_icon: "{{ repeat.item.icon }}"
+                      else:
+                        - action: "{{ notify_action }}"
+                          data:
+                            message: clear_notification
+                            data:
+                              tag: "{{ repeat.item.tag }}"
+      - alias: Battery boost charging (force charge after incomplete round)
+        if:
+          - condition: template
+            value_template: >
+              {{ trigger.id == 'problem-check'
+                and enable_battery_boost
+                and battery_entity is not none
+                and cleaning_progress_entity is not none
+                and in_cleaning_entity is not none
+                and off_peak_switch_entity is not none }}
+        then:
+          - variables:
+              battery_level: "{{ states(battery_entity) | float(100) }}"
+              progress_level: "{{ states(cleaning_progress_entity) | float(100) }}"
+              is_cleaning: "{{ states(in_cleaning_entity) == 'on' }}"
+              off_peak_is_on: "{{ states(off_peak_switch_entity) == 'on' }}"
+          - if:
               - condition: template
                 value_template: >
-                  {{ enable_battery_boost
-                    and battery_entity is not none
-                    and cleaning_progress_entity is not none
-                    and in_cleaning_entity is not none
-                    and off_peak_switch_entity is not none }}
+                  {{ not is_cleaning and off_peak_is_on
+                    and battery_level < boost_low_battery_threshold
+                    and progress_level < boost_incomplete_progress_threshold }}
             then:
-              - variables:
-                  battery_level: "{{ states(battery_entity) | float(100) }}"
-                  progress_level: "{{ states(cleaning_progress_entity) | float(100) }}"
-                  is_cleaning: "{{ states(in_cleaning_entity) == 'on' }}"
-                  off_peak_is_on: "{{ states(off_peak_switch_entity) == 'on' }}"
-              - if:
-                  - condition: template
-                    value_template: >
-                      {{ not is_cleaning and off_peak_is_on
-                        and battery_level < boost_low_battery_threshold
-                        and progress_level < boost_incomplete_progress_threshold }}
-                then:
-                  - alias: Disable off-peak restriction so the dock charges immediately
-                    action: switch.turn_off
-                    target:
-                      entity_id: "{{ off_peak_switch_entity }}"
-                  - action: "{{ notify_action }}"
-                    data:
-                      title: "{{ title_battery_boost }}"
-                      message: >
-                        {{ msg_battery_boost }} ({{ progress_level | round(0) }}% / {{ battery_level | round(0) }}%)
-                      data:
-                        group: vacuum
-                        tag: "persistent_vacuum_battery_boost_{{ tag_suffix }}"
-                        sticky: false
-                        notification_icon: mdi:battery-charging-outline
-              - if:
-                  - condition: template
-                    value_template: >
-                      {{ not off_peak_is_on
-                        and battery_level >= boost_full_battery_threshold
-                        and states[off_peak_switch_entity].context.user_id is none }}
-                then:
-                  - alias: Fully charged again — restore off-peak schedule
-                    action: switch.turn_on
-                    target:
-                      entity_id: "{{ off_peak_switch_entity }}"
-                  - action: "{{ notify_action }}"
-                    data:
-                      message: clear_notification
-                      data:
-                        tag: "persistent_vacuum_battery_boost_{{ tag_suffix }}"
+              - alias: Disable off-peak restriction so the dock charges immediately
+                action: switch.turn_off
+                target:
+                  entity_id: "{{ off_peak_switch_entity }}"
+              - action: "{{ notify_action }}"
+                data:
+                  title: "{{ title_battery_boost }}"
+                  message: >
+                    {{ msg_battery_boost }} ({{ progress_level | round(0) }}% / {{ battery_level | round(0) }}%)
+                  data:
+                    group: vacuum
+                    tag: "persistent_vacuum_battery_boost_{{ tag_suffix }}"
+                    sticky: false
+                    notification_icon: mdi:battery-charging-outline
+          - if:
+              - condition: template
+                value_template: >
+                  {{ not off_peak_is_on
+                    and battery_level >= boost_full_battery_threshold
+                    and states[off_peak_switch_entity].context.user_id is none }}
+            then:
+              - alias: Fully charged again — restore off-peak schedule
+                action: switch.turn_on
+                target:
+                  entity_id: "{{ off_peak_switch_entity }}"
+              - action: "{{ notify_action }}"
+                data:
+                  message: clear_notification
+                  data:
+                    tag: "persistent_vacuum_battery_boost_{{ tag_suffix }}"
